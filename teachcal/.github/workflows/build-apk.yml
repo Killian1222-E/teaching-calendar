@@ -1,0 +1,110 @@
+name: 建置 Android APK
+
+on:
+  push:
+    branches: [main, master]
+  workflow_dispatch:
+    inputs:
+      version_name:
+        description: '版本名稱（例如 1.0.1），留白就沿用專案設定'
+        required: false
+
+permissions:
+  contents: write
+
+jobs:
+  build:
+    runs-on: ubuntu-latest
+
+    steps:
+      - uses: actions/checkout@v4
+
+      - uses: actions/setup-node@v4
+        with:
+          node-version: '20'
+          cache: npm
+
+      - uses: actions/setup-java@v4
+        with:
+          distribution: temurin
+          java-version: '21'
+
+      - uses: android-actions/setup-android@v3
+
+      - name: 安裝相依套件
+        run: npm ci
+
+      - name: 單元測試
+        run: npm test
+
+      - name: 建置網頁與同步到 Android 專案
+        run: |
+          npm run build
+          npx cap sync android
+
+      - name: 套用版本號
+        if: inputs.version_name != ''
+        run: |
+          sed -i "s/versionName \"[^\"]*\"/versionName \"${{ inputs.version_name }}\"/" android/app/build.gradle
+          CODE=$(( $(date +%s) / 60 ))
+          sed -i "s/versionCode [0-9]*/versionCode $CODE/" android/app/build.gradle
+
+      - name: 還原簽名金鑰
+        id: keystore
+        env:
+          KS: ${{ secrets.KEYSTORE_BASE64 }}
+        run: |
+          if [ -n "$KS" ]; then
+            echo "$KS" | base64 -d > "$RUNNER_TEMP/release.keystore"
+            echo "path=$RUNNER_TEMP/release.keystore" >> "$GITHUB_OUTPUT"
+            echo "signed=yes" >> "$GITHUB_OUTPUT"
+          else
+            echo "signed=no" >> "$GITHUB_OUTPUT"
+            echo "沒有設定 KEYSTORE_BASE64，改建測試版 APK。"
+          fi
+
+      - name: 建置正式版 APK（已簽名）
+        if: steps.keystore.outputs.signed == 'yes'
+        working-directory: android
+        env:
+          KEYSTORE_PATH: ${{ steps.keystore.outputs.path }}
+          KEYSTORE_PASSWORD: ${{ secrets.KEYSTORE_PASSWORD }}
+          KEY_ALIAS: ${{ secrets.KEY_ALIAS }}
+          KEY_PASSWORD: ${{ secrets.KEY_PASSWORD }}
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleRelease --no-daemon
+
+      - name: 建置測試版 APK（沒設定金鑰時）
+        if: steps.keystore.outputs.signed == 'no'
+        working-directory: android
+        run: |
+          chmod +x gradlew
+          ./gradlew assembleDebug --no-daemon
+
+      - name: 整理輸出檔名
+        id: out
+        run: |
+          mkdir -p out
+          APK=$(find android/app/build/outputs/apk -name '*.apk' | head -1)
+          cp "$APK" "out/課程行事曆-$(date +%Y%m%d-%H%M).apk"
+          ls -la out
+          echo "name=$(basename out/*.apk)" >> "$GITHUB_OUTPUT"
+
+      - name: 上傳 APK
+        uses: actions/upload-artifact@v4
+        with:
+          name: apk
+          path: out/*.apk
+          retention-days: 90
+
+      - name: 說明
+        run: |
+          echo "### APK 建好了 :tada:" >> $GITHUB_STEP_SUMMARY
+          echo "" >> $GITHUB_STEP_SUMMARY
+          echo "到這個頁面最下面的 **Artifacts → apk** 下載，解壓縮後傳到手機安裝。" >> $GITHUB_STEP_SUMMARY
+          if [ "${{ steps.keystore.outputs.signed }}" = "no" ]; then
+            echo "" >> $GITHUB_STEP_SUMMARY
+            echo "> 目前是**測試版簽名**。想要之後能直接覆蓋更新、不用先解除安裝，" >> $GITHUB_STEP_SUMMARY
+            echo "> 請先跑一次「建立簽名金鑰」這個工作流程，把產生的 secrets 設好。" >> $GITHUB_STEP_SUMMARY
+          fi

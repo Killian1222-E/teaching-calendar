@@ -1,0 +1,20 @@
+node_modules/
+dist/
+dev-dist/
+.DS_Store
+*.log
+
+# Android 建置產物
+android/.gradle/
+android/build/
+android/app/build/
+android/local.properties
+android/app/src/main/assets/public/
+android/app/src/main/assets/capacitor.config.json
+android/app/src/main/assets/capacitor.plugins.json
+android/capacitor-cordova-android-plugins/
+
+# 簽名金鑰絕對不要進版控
+*.keystore
+*.jks
+keystore.properties

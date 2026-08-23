@@ -1,0 +1,11 @@
+import { chromium } from 'playwright'
+const b = await chromium.launch({ executablePath: '/opt/pw-browsers/chromium' })
+const c = await b.newContext({ viewport:{width:1280,height:880}, deviceScaleFactor:2, locale:'zh-TW', timezoneId:'Asia/Taipei', colorScheme:'light' })
+const p = await c.newPage()
+const errs=[]; p.on('pageerror',e=>errs.push(e.message))
+await p.goto('http://127.0.0.1:5173/', { waitUntil:'networkidle' }); await p.waitForTimeout(1200)
+await p.screenshot({ path:'/home/claude/shots2/15-desktop-fixed.png' })
+await p.getByRole('button',{name:'清單',exact:true}).click(); await p.waitForTimeout(600)
+await p.screenshot({ path:'/home/claude/shots2/16-desktop-agenda.png' })
+console.log('errs:', errs.length?errs:'無')
+await b.close()
