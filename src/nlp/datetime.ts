@@ -347,3 +347,42 @@ export function parseDates(text: string, today: string, consumer?: Consumer): Da
 }
 
 export { addMinutes } from '../lib/date'
+
+// ---------------------------------------------------------------------------
+// 一行裡有多個時段的情況（例如「0830-1000 1030-1200」）
+// ---------------------------------------------------------------------------
+
+export interface TimeRange { start: string; end?: string }
+
+const RANGE_PATTERNS: RegExp[] = [
+  // 13:00-14:30（可帶上下午）
+  new RegExp(`${MER}?\\s*(\\d{1,2}):(\\d{2})${RANGE_SEP}${MER}?\\s*(\\d{1,2}):(\\d{2})`, 'g'),
+  // 1300-1430
+  new RegExp(`(?<![\\d:])(\\d{3,4})${RANGE_SEP}(\\d{3,4})(?![\\d:])`, 'g'),
+  // 下午1點到2點半
+  new RegExp(`${MER}?\\s*(\\d{1,2})\\s*點\\s*(\\d{1,2})?\\s*分?${RANGE_SEP}${MER}?\\s*(\\d{1,2})\\s*點\\s*(\\d{1,2})?\\s*分?`, 'g'),
+]
+
+/**
+ * 抓出一行裡「所有」時段。
+ * 老師轉貼的代課邀請常常是一天列好幾節，一行一節或一行好幾節都有可能。
+ */
+export function parseAllTimeRanges(text: string): TimeRange[] {
+  const found: { at: number; r: TimeRange }[] = []
+  const taken: [number, number][] = []
+  const overlaps = (a: number, b: number) =>
+    taken.some(([x, y]) => a < y && b > x)
+
+  for (const re of RANGE_PATTERNS) {
+    re.lastIndex = 0
+    for (const m of text.matchAll(re)) {
+      const at = m.index ?? 0
+      if (overlaps(at, at + m[0].length)) continue
+      const span = parseTimes(m[0])
+      if (!span.start) continue
+      taken.push([at, at + m[0].length])
+      found.push({ at, r: { start: span.start, end: span.end } })
+    }
+  }
+  return found.sort((a, b) => a.at - b.at).map((x) => x.r)
+}

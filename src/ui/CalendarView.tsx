@@ -4,11 +4,12 @@ import {
   WEEKDAY_ZH, addDays, addMonths, formatDateZh, fromDateStr, monthGrid,
   relativeDayLabel, sameMonth, todayStr,
 } from '../lib/date'
+import { clashesOn, clashingDates } from '../db/repo'
 import { rosterOf } from '../lib/roster'
 import { shortGroupName } from '../lib/text'
 import { Empty } from './common'
 import { RosterPeek } from './GroupPeek'
-import { IconChevL, IconChevR, IconPlus, IconUsers } from './icons'
+import { IconChevL, IconChevR, IconPlus, IconUsers, IconWarn } from './icons'
 import { LessonCard } from './LessonCard'
 import type { AppData } from './useData'
 
@@ -40,6 +41,9 @@ export function CalendarView({
   }, [data.lessons])
 
   const grid = useMemo(() => monthGrid(anchor), [anchor])
+  /** 時段互相重疊的日期，月曆上用紅字標出來 */
+  const clashes = useMemo(() => clashingDates(data.lessons), [data.lessons])
+  const dayClashes = useMemo(() => clashesOn(selected, data.lessons), [selected, data.lessons])
   const dayLessons = byDate.get(selected) ?? []
 
   /** 這天出現的班級（去重），給日期標題列的名單快捷用 */
@@ -70,6 +74,7 @@ export function CalendarView({
 
   return (
     <>
+      <div className="cal-sticky">
       <div className="cal-head">
         {mode === 'month' ? (
           <>
@@ -101,23 +106,31 @@ export function CalendarView({
       </div>
 
       {mode === 'month' && (
+        <div className="cal-week">
+          {WEEKDAY_ZH.map((w, i) => (
+            <div key={w} className={'wd' + (i === 0 || i === 6 ? ' we' : '')}>{w}</div>
+          ))}
+        </div>
+      )}
+      </div>
+
+      {mode === 'month' && (
         <>
-          <div className="cal-week">
-            {WEEKDAY_ZH.map((w, i) => (
-              <div key={w} className={'wd' + (i === 0 || i === 6 ? ' we' : '')}>{w}</div>
-            ))}
-          </div>
           <div className="cal-grid">
             {grid.map((d) => {
               const rows = (byDate.get(d) ?? []).filter((l) => l.status !== 'cancelled')
+              const hasClash = clashes.has(d)
               const cls = [
                 'cal-cell',
                 sameMonth(d, anchor) ? '' : 'out',
                 d === today ? 'today' : '',
                 d === selected ? 'sel' : '',
-              ].join(' ')
+                hasClash ? 'clash' : '',
+              ].filter(Boolean).join(' ')
               return (
-                <button key={d} className={cls} onClick={() => setSelected(d)}>
+                <button key={d} className={cls} onClick={() => setSelected(d)}
+                  title={hasClash ? '這天有時段重疊' : undefined}>
+                  {hasClash && <span className="clash-dot" />}
                   <span className="num">{fromDateStr(d).getDate()}</span>
                   <span className="tags">
                     {rows.slice(0, 3).map((l) => {
@@ -159,6 +172,17 @@ export function CalendarView({
                 <IconPlus size={15} /> 大活動
               </button>
             </div>
+
+            {dayClashes.length > 0 && (
+              <div className="banner err" style={{ marginBottom: 10 }}>
+                <IconWarn size={16} />
+                <span>
+                  這天有 {dayClashes.length} 堂課時段重疊：
+                  {dayClashes.map((l) => `${l.start_time}–${l.end_time}`).join('、')}。
+                  還在喬時間就先留著，確定了再改或刪掉。
+                </span>
+              </div>
+            )}
 
             {(dayGroups.length > 0 || dayLooseLessons.length > 0) && (
               <div className="row wrap" style={{ marginBottom: 10, gap: 6 }}>

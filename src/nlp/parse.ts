@@ -4,6 +4,8 @@ import {
   matchPattern, normalizeName,
 } from '../db/repo'
 import { addMinutes, parseDates, parseTimes } from './datetime'
+import { parseBlock } from './block'
+import { findKnownLoose, matchSubstitute } from './entities'
 import { Consumer, canonicalize } from './normalize'
 import { emptyResult, type Intent, type LessonDraft, type ParseContext, type ParseResult } from './types'
 
@@ -31,7 +33,8 @@ const GROUP_PATTERNS = [
   /((?:學生)?組\s*[A-Za-z0-9]{1,3})/g,
   /(學生組\s*[一二三四五六七八九十甲乙丙丁]{1,2})/g,
   /([A-Za-z0-9]{1,3}\s*組(?![別長員]))/g,
-  /([一-龥A-Za-z0-9]{1,6}班(?!級))/g,
+  // 排除「第一班」這種節次寫法：開頭不能是「第」，前面也不能緊接著「第」
+  /(?<!第)((?!第)[一-龥A-Za-z0-9]{1,6}班(?!級))/g,
 ]
 
 // ---------------------------------------------------------------------------
@@ -81,7 +84,7 @@ function stripLeadingCourse(s: string, ctx: ParseContext): string {
 // 主解析
 // ---------------------------------------------------------------------------
 
-export function parse(input: string, ctx: ParseContext): ParseResult {
+function parseSingle(input: string, ctx: ParseContext): ParseResult {
   const raw = input.trim()
   const res = emptyResult(raw)
   if (!raw) return res
@@ -101,19 +104,10 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
   else if (queryVerb.test(text) || (queryRe.test(text) && !/[上下]課|排|新增|加/.test(text))) intent = 'query'
 
   // ---- 代課 --------------------------------------------------------------
-  let isSub: 0 | 1 = 0
-  let subStated = false
-  let substituteFor: string | undefined
-  const noSub = text.match(/(?:不是|不算|非|沒有|不用|不需要|不為)\s*代課/)
-  if (noSub) { isSub = 0; subStated = true; c.consumeMatch(noSub) }
-  else {
-    const yesSub = text.match(/(?:幫\s*([一-龥A-Za-z]{1,6})\s*)?代課|代班|代上/)
-    if (yesSub) {
-      isSub = 1; subStated = true
-      if (yesSub[1]) substituteFor = yesSub[1]
-      c.consumeMatch(yesSub)
-    }
-  }
+  const subFlag = matchSubstitute(text, c)
+  const isSub = subFlag.isSub
+  const subStated = subFlag.stated
+  const substituteFor = subFlag.forWhom
 
   // ---- 上次進度 ----------------------------------------------------------
   let prevTopic: string | undefined
@@ -144,7 +138,7 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
   // ---- 實體：地點 / 課程 / 班級 -----------------------------------------
   let locationId: string | undefined
   let locationName: string | undefined
-  const knownLoc = findKnown(text, ctx.locations)
+  const knownLoc = findKnownLoose(text, ctx.locations)
   if (knownLoc) { locationId = knownLoc.rec.id; c.consume(knownLoc.at.index, knownLoc.at.length) }
   else {
     for (const m of text.matchAll(LOCATION_SUFFIX)) {
@@ -366,7 +360,7 @@ export function parse(input: string, ctx: ParseContext): ParseResult {
         res.warnings.push(
           `這一班上過 ${used.join('、')}，每週不一定一樣，請指定這次要上哪一門。`,
         )
-      } else if (!used.length) {
+      } else if (!used.length && !d0.is_substitute) {
         res.warnings.push('沒有讀到課程種類。')
       }
     }
@@ -592,3 +586,14 @@ export function describeDraft(d: LessonDraft, ctx: ParseContext): string {
 }
 
 export { weekdayOf, normalizeName }
+
+
+/**
+ * 入口。先試著把輸入當成「一次貼上多筆」來解析（老師轉貼的代課邀請、
+ * 一天好幾節的課表）；認不出來才走原本的單句解析。
+ */
+export function parse(input: string, ctx: ParseContext): ParseResult {
+  const block = parseBlock(input, ctx)
+  if (block && block.drafts.length >= 2) return block
+  return parseSingle(input, ctx)
+}

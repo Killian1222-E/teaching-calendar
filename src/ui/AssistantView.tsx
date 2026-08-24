@@ -5,10 +5,10 @@ import { parse } from '../nlp/parse'
 import type { LessonDraft, ParseResult } from '../nlp/types'
 import { formatDateZh } from '../lib/date'
 import { useToast } from './common'
-import { IconSend, IconSparkle, IconSync, IconWarn } from './icons'
+import { IconSend, IconSparkle, IconSync, IconTrash, IconWarn } from './icons'
 import type { AppData } from './useData'
 
-type Msg =
+export type Msg =
   | { role: 'me'; text: string }
   | { role: 'bot'; text: string; error?: boolean }
   | { role: 'proposal'; result: ParseResult; applied?: boolean }
@@ -23,17 +23,23 @@ const SUGGESTIONS = [
   '學生組B上次上到哪',
 ]
 
-export function AssistantView({ data }: { data: AppData }) {
-  const toast = useToast()
-  const [msgs, setMsgs] = useState<Msg[]>([
-    {
-      role: 'bot',
-      text:
+export const INTRO: Msg = {
+  role: 'bot',
+  text:
         '用一句話告訴我要排什麼課就好，例如：\n\n「8/25 1300-1430 三民分校 Minecraft 學生組B、不是代課，上次Minecraft 狗狗圍欄」\n\n' +
         '我會自己拆成日期、時間、地點、課程、班級。之後同一個星期幾、同一個時段，我就直接幫你帶入同一個班級，除非你另外說有變動。\n\n' +
-        '代課、大活動也可以直接講，例如「9/20 0900-1600 中鋼大活動 80人」。同一班每週上不同課時，沒講課程我會提醒你，不會自己亂猜。',
-    },
-  ])
+        '代課、大活動也可以直接講，例如「9/20 0900-1600 中鋼大活動 80人」。同一班每週上不同課時，沒講課程我會提醒你，不會自己亂猜。\n\n' +
+    '別人傳來的代課邀請可以整段複製貼上，一天好幾節、跨好幾天都沒問題。最後那句「都在三民」這種條件我會套用到全部。',
+}
+
+export function AssistantView({
+  data, msgs, setMsgs,
+}: {
+  data: AppData
+  msgs: Msg[]
+  setMsgs: React.Dispatch<React.SetStateAction<Msg[]>>
+}) {
+  const toast = useToast()
   const [input, setInput] = useState('')
   const [busy, setBusy] = useState(false)
   const [learnPatterns, setLearnPatterns] = useState(true)
@@ -146,18 +152,31 @@ export function AssistantView({ data }: { data: AppData }) {
         <div ref={endRef} />
       </div>
 
-      <div className="suggests">
-        {SUGGESTIONS.map((s) => (
-          <button key={s} onClick={() => send(s)} disabled={busy}>{s}</button>
-        ))}
-      </div>
+      {msgs.length > 1 && (
+        <div className="chat-tools">
+          <span className="tiny faint">{msgs.filter((m) => m.role === 'me').length} 則輸入</span>
+          <span className="sp" />
+          <button className="btn sm ghost" onClick={() => setMsgs([INTRO])}>
+            <IconTrash size={14} /> 清空對話
+          </button>
+        </div>
+      )}
+
+      {/* 手機空間有限：開始對話之後就把範例收起來，把版面讓給輸入列 */}
+      {msgs.length <= 1 && (
+        <div className="suggests">
+          {SUGGESTIONS.map((s) => (
+            <button key={s} onClick={() => send(s)} disabled={busy}>{s}</button>
+          ))}
+        </div>
+      )}
 
       <div className="composer">
         <textarea
           ref={taRef}
           value={input}
           rows={1}
-          placeholder="用一句話說要排什麼課…"
+          placeholder="說一句話，或整段貼上"
           onChange={(e) => {
             setInput(e.target.value)
             e.target.style.height = 'auto'
@@ -249,7 +268,7 @@ function ProposalCard({
         ))}
       </div>
 
-      {isCreate && !applied && (
+      {isCreate && !applied && result.drafts.some((d) => d.group_id || d.group_name) && (
         <label className="row" style={{ padding: '10px 13px 0', gap: 8, cursor: 'pointer' }}>
           <input type="checkbox" checked={learnPatterns} onChange={(e) => setLearnPatterns(e.target.checked)}
             style={{ width: 16, height: 16, accentColor: 'var(--accent)' }} />
@@ -288,7 +307,8 @@ function DraftRow({
           {formatDateZh(d.date)} <span className="mono">{d.start_time}–{d.end_time}</span>
         </div>
         <div className="tiny muted">
-          {[l, c, g].filter(Boolean).join('・') || '（尚未指定班級）'}
+          {[l, c, g, d.note].filter(Boolean).join('・') ||
+            (d.is_substitute ? '（代課，內容稍後再補）' : '（尚未指定班級）')}
         </div>
         <div className="row wrap" style={{ gap: 5 }}>
           {d.is_substitute ? <span className="chip sub">代課</span> : null}

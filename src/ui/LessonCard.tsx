@@ -33,7 +33,7 @@ export function LessonCard({
 
   const title = isEvent
     ? (lesson.title || course || '大活動')
-    : (course || '未命名課程')
+    : course || (lesson.is_substitute ? '代課' : '未命名課程')
 
   // 同一班每週課程可能不同：同一門課的進度與上一次見面分開顯示
   const sameCourse = prog?.sameCourse

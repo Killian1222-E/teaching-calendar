@@ -4,7 +4,7 @@ import { seedIfEmpty } from './db/seed'
 import { onSynced, startAutoSync } from './db/sync'
 import type { Lesson } from './db/types'
 import { todayStr } from './lib/date'
-import { AssistantView } from './ui/AssistantView'
+import { AssistantView, INTRO, type Msg } from './ui/AssistantView'
 import { CalendarView } from './ui/CalendarView'
 import { GroupsView } from './ui/GroupsView'
 import { LessonSheet } from './ui/LessonSheet'
@@ -54,6 +54,8 @@ export default function App() {
   const [tab, setTab] = useState<Tab>('cal')
   const [sheet, setSheet] = useState<{ lesson?: Lesson; date?: string; kind?: 'class' | 'event' } | null>(null)
   const data = useAppData()
+  // 對話留在這裡，切到行事曆看一眼再回來不會整串不見
+  const [chat, setChat] = useState<Msg[]>([INTRO])
 
   useEffect(() => {
     (async () => {
@@ -95,7 +97,7 @@ export default function App() {
                 onCreate={(d, kind) => setSheet({ date: d, kind })}
               />
             )}
-            {tab === 'ai' && <AssistantView data={data} />}
+            {tab === 'ai' && <AssistantView data={data} msgs={chat} setMsgs={setChat} />}
             {tab === 'groups' && <GroupsView data={data} />}
             {tab === 'patterns' && <PatternsView data={data} />}
             {tab === 'settings' && <SettingsView data={data} />}

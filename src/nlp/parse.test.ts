@@ -348,3 +348,117 @@ describe('人數計算', () => {
     expect(eventScale(8).label).toBe('小場')
   })
 })
+
+// ===========================================================================
+// 一次貼上多筆（老師轉來的代課邀請）
+// ===========================================================================
+describe('多行貼上', () => {
+  const REAL = `品品老師以下時間是可以請您幫忙代課嗎?
+
+9/5(六):
+第一班0830-1000
+第二班1030-1200
+第三班1400-1530
+第四班1600-1730
+
+9/8(二)18:30-20:00
+9/9(三)19:00-20:30
+9/10(四)19:00-20:30
+9/11(五)19:00-20:30
+
+9/12(六):
+第一班0830-1000
+第二班1030-1200
+第三班1400-1530
+第四班1600-1730
+
+都在三民上課`
+
+  it('整段貼上會展開成 12 堂課', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.intent).toBe('create')
+    expect(r.drafts).toHaveLength(12)
+  })
+
+  it('日期標題底下的多個時段都掛到同一天', () => {
+    const r = parse(REAL, ctxOf())
+    const sep5 = r.drafts.filter((d) => d.date === '2026-09-05')
+    expect(sep5.map((d) => `${d.start_time}-${d.end_time}`)).toEqual([
+      '08:30-10:00', '10:30-12:00', '14:00-15:30', '16:00-17:30',
+    ])
+  })
+
+  it('日期和時間同一行也讀得到', () => {
+    const r = parse(REAL, ctxOf())
+    const d = r.drafts.find((x) => x.date === '2026-09-08')
+    expect(d?.start_time).toBe('18:30')
+    expect(d?.end_time).toBe('20:00')
+  })
+
+  it('最後那句「都在三民上課」套用到全部', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.drafts.every((d) => d.location_id === 'L1')).toBe(true)
+  })
+
+  it('開頭那句「幫忙代課」讓全部都標成代課', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.drafts.every((d) => d.is_substitute === 1)).toBe(true)
+    // 「幫忙」的「忙」不是人名
+    expect(r.drafts.every((d) => !d.substitute_for)).toBe(true)
+  })
+
+  it('「第一班」是節次不是班級，不會建立新班級', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.drafts.every((d) => d.creates.groups.length === 0)).toBe(true)
+    expect(r.drafts.every((d) => !d.group_id && !d.group_name)).toBe(true)
+    expect(r.drafts[0].note).toBe('第一班')
+  })
+
+  it('代課不會被固定課表硬塞自己的班級', () => {
+    const patterns = [
+      pat({ id: 'P1', weekday: 6, start_time: '08:30', end_time: '10:00', group_id: 'G2', course_id: 'C1' }),
+    ]
+    const r = parse(REAL, ctxOf({ patterns }))
+    expect(r.drafts.every((d) => !d.group_id)).toBe(true)
+  })
+
+  it('代課還不知道要上什麼，不會一直唸沒填課程', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.warnings.join()).not.toContain('沒有讀到課程種類')
+  })
+
+  it('會告訴你總共讀到幾筆、橫跨幾天', () => {
+    const r = parse(REAL, ctxOf())
+    expect(r.warnings.join()).toContain('12')
+    expect(r.warnings.join()).toContain('6 天')
+  })
+
+  it('簡稱「三民」也能對到「三民分校」', () => {
+    const r = parse('9/5 0830-1000\n9/5 1030-1200\n都在三民', ctxOf())
+    expect(r.drafts.every((d) => d.location_id === 'L1')).toBe(true)
+  })
+
+  it('一行裡有多個時段也拆得開', () => {
+    const r = parse('9/5 0830-1000 1030-1200 1400-1530 三民分校', ctxOf())
+    expect(r.drafts.map((d) => d.start_time)).toEqual(['08:30', '10:30', '14:00'])
+  })
+
+  it('單筆的句子仍然走原本的解析器', () => {
+    const r = parse('8/25 1300-1430 三民分校 Minecraft 學生組B', ctxOf())
+    expect(r.drafts).toHaveLength(1)
+    expect(r.drafts[0].group_id).toBe('G2')
+  })
+
+  it('「每週…」這種規則不會被多行模式搶走', () => {
+    const r = parse('9月每週一 1400-1530 三民分校 樂高 學生組B', ctxOf())
+    expect(r.drafts).toHaveLength(4)
+  })
+
+  it('停課指令不會被多行模式搶走', () => {
+    const lessons = [
+      les({ id: 'X1', date: '2026-09-07', start_time: '14:00', end_time: '15:30', group_id: 'G2' }),
+    ]
+    const r = parse('9/7 停課', ctxOf({ lessons }))
+    expect(r.intent).toBe('cancel')
+  })
+})

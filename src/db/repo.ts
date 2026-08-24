@@ -404,3 +404,40 @@ export function findConflict(
     ) ?? null
   )
 }
+
+/**
+ * 找出「同一天有兩堂課時段重疊」的日期。
+ * 通常代表還在喬時間、或不小心加了兩次，值得在月曆上用紅字提醒。
+ */
+export function clashingDates(lessons: Lesson[]): Set<string> {
+  const byDate = new Map<string, Lesson[]>()
+  for (const l of lessons) {
+    if (l.deleted || l.status === 'cancelled') continue
+    const arr = byDate.get(l.date) ?? []
+    arr.push(l)
+    byDate.set(l.date, arr)
+  }
+  const out = new Set<string>()
+  for (const [date, rows] of byDate) {
+    if (rows.length < 2) continue
+    const sorted = [...rows].sort((a, b) => timeToMin(a.start_time) - timeToMin(b.start_time))
+    for (let i = 1; i < sorted.length; i++) {
+      if (timeToMin(sorted[i].start_time) < timeToMin(sorted[i - 1].end_time)) { out.add(date); break }
+    }
+  }
+  return out
+}
+
+/** 某一天重疊的課堂（給提示文字用） */
+export function clashesOn(date: string, lessons: Lesson[]): Lesson[] {
+  const rows = lessons
+    .filter((l) => !l.deleted && l.date === date && l.status !== 'cancelled')
+    .sort((a, b) => timeToMin(a.start_time) - timeToMin(b.start_time))
+  const hit = new Set<string>()
+  for (let i = 1; i < rows.length; i++) {
+    if (timeToMin(rows[i].start_time) < timeToMin(rows[i - 1].end_time)) {
+      hit.add(rows[i - 1].id); hit.add(rows[i].id)
+    }
+  }
+  return rows.filter((l) => hit.has(l.id))
+}
