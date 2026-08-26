@@ -57,9 +57,12 @@ export function endOfMonth(s: string): string {
   return toDateStr(last)
 }
 
-/** 月曆格線用：從該月第一天所在週的週一開始，共 6 週 42 天 */
+/** 月曆格線用：從該月第一天所在週的「週日」開始，共 6 週 42 天。
+ *  週曆表頭是日一二三四五六（週日排第一欄），這裡一定要對齊表頭，
+ *  之前誤用 startOfWeek()（回傳週一）起算，整排日期就會全部往前錯一欄。 */
 export function monthGrid(anchor: string): string[] {
-  let cur = startOfWeek(startOfMonth(anchor))
+  const first = startOfMonth(anchor)
+  let cur = addDays(first, -weekdayOf(first))
   const out: string[] = []
   for (let i = 0; i < 42; i++) {
     out.push(cur)
